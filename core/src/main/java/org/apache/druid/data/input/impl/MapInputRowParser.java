@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashSet;
 
 public class MapInputRowParser implements InputRowParser<Map<String, Object>>
 {
@@ -85,7 +86,13 @@ public class MapInputRowParser implements InputRowParser<Map<String, Object>>
   {
     final List<String> dimensionsToUse;
     if (!dimensions.isEmpty()) {
-      dimensionsToUse = dimensions;
+      // dimensionsToUse = dimensions;
+
+      Set<String> discoveredDimensions = theMap.keySet();
+      Set<String> allDimensionsExplicitAndDiscovered = new HashSet<String>(dimensions);
+      allDimensionsExplicitAndDiscovered.addAll(discoveredDimensions);
+
+      dimensionsToUse = new ArrayList<>(Sets.difference(allDimensionsExplicitAndDiscovered, dimensionExclusions));
     } else {
       dimensionsToUse = new ArrayList<>(Sets.difference(theMap.keySet(), dimensionExclusions));
     }
