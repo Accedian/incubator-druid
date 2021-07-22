@@ -284,6 +284,28 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
   }
 
   @Test
+  public void testSelectConstantExpressionEquivalentToNaN() throws Exception
+  {
+    expectedException.expectMessage("'(log10(0) - log10(0))' evaluates to 'NaN' that is not supported in SQL. You can either cast the expression as bigint ('cast((log10(0) - log10(0)) as bigint)') or char ('cast((log10(0) - log10(0)) as char)') or change the expression itself");
+    testQuery(
+        "SELECT log10(0) - log10(0), dim1 FROM foo LIMIT 1",
+        ImmutableList.of(),
+        ImmutableList.of()
+    );
+  }
+
+  @Test
+  public void testSelectConstantExpressionEquivalentToInfinity() throws Exception
+  {
+    expectedException.expectMessage("'log10(0)' evaluates to '-Infinity' that is not supported in SQL. You can either cast the expression as bigint ('cast(log10(0) as bigint)') or char ('cast(log10(0) as char)') or change the expression itself");
+    testQuery(
+        "SELECT log10(0), dim1 FROM foo LIMIT 1",
+        ImmutableList.of(),
+        ImmutableList.of()
+    );
+  }
+
+  @Test
   public void testGroupByWithPostAggregatorReferencingTimeFloorColumnOnTimeseries() throws Exception
   {
     cannotVectorize();
@@ -7966,7 +7988,12 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                                 ImmutableList.of("d0", "d1"),
                                                 ImmutableList.of("d0", "d2")
                                             ))
-                                            .setContext(QUERY_CONTEXT_DEFAULT)
+                                            .setContext(withTimestampResultContext(
+                                                QUERY_CONTEXT_DEFAULT,
+                                                "d0",
+                                                0,
+                                                Granularities.DAY
+                                            ))
                                             .build()
                             )
                         )
@@ -10075,7 +10102,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 Integer.MAX_VALUE
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d0", 0, Granularities.YEAR))
                         .build()
         ),
         NullHandling.replaceWithDefault() ?
@@ -13337,7 +13364,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 Integer.MAX_VALUE
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         NullHandling.replaceWithDefault() ?
@@ -13355,6 +13382,108 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
             new Object[]{"a", timestamp("2000-01-01"), 1L},
             new Object[]{"a", timestamp("2001-01-01"), 1L},
             new Object[]{"abc", timestamp("2001-01-01"), 1L}
+        )
+    );
+  }
+
+  @Test
+  public void testGroupByTimeFloorAndDimOnGroupByTimeFloorAndDim() throws Exception
+  {
+    testQuery(
+        "SELECT dim2, time_floor(gran, 'P1M') gran, sum(s)\n"
+        + "FROM (SELECT time_floor(__time, 'P1D') AS gran, dim2, sum(m1) as s FROM druid.foo GROUP BY 1, 2 HAVING sum(m1) > 1) AS x\n"
+        + "GROUP BY 1, 2\n"
+        + "ORDER BY dim2, gran desc",
+        ImmutableList.of(
+            GroupByQuery.builder()
+                        .setDataSource(
+                            new QueryDataSource(
+                                GroupByQuery.builder()
+                                            .setDataSource(CalciteTests.DATASOURCE1)
+                                            .setInterval(querySegmentSpec(Filtration.eternity()))
+                                            .setGranularity(Granularities.ALL)
+                                            .setVirtualColumns(
+                                                expressionVirtualColumn(
+                                                    "v0",
+                                                    "timestamp_floor(\"__time\",'P1D',null,'UTC')",
+                                                    ValueType.LONG
+                                                )
+                                            )
+                                            .setDimensions(
+                                                dimensions(
+                                                    new DefaultDimensionSpec("v0", "d0", ValueType.LONG),
+                                                    new DefaultDimensionSpec("dim2", "d1")
+                                                )
+                                            )
+                                            .setAggregatorSpecs(aggregators(new DoubleSumAggregatorFactory("a0", "m1")))
+                                            .setContext(
+                                                withTimestampResultContext(
+                                                    QUERY_CONTEXT_DEFAULT,
+                                                    "d0",
+                                                    0,
+                                                    Granularities.DAY
+                                                )
+                                            )
+                                            .build()
+                            )
+                        )
+                        .setInterval(querySegmentSpec(Filtration.eternity()))
+                        .setGranularity(Granularities.ALL)
+                        .setVirtualColumns(
+                            expressionVirtualColumn(
+                                "v0",
+                                "timestamp_floor(\"d0\",'P1M',null,'UTC')",
+                                ValueType.LONG
+                            )
+                        )
+                        .setDimensions(
+                            dimensions(
+                                new DefaultDimensionSpec("d1", "_d0"),
+                                new DefaultDimensionSpec("v0", "_d1", ValueType.LONG)
+                            )
+                        )
+                        .setDimFilter(
+                            new BoundDimFilter(
+                                "a0",
+                                "1",
+                                null,
+                                true,
+                                null,
+                                null,
+                                null,
+                                StringComparators.NUMERIC
+                            )
+                        )
+                        .setAggregatorSpecs(aggregators(new DoubleSumAggregatorFactory("_a0", "a0")))
+                        .setLimitSpec(
+                            new DefaultLimitSpec(
+                                ImmutableList.of(
+                                    new OrderByColumnSpec("_d0", OrderByColumnSpec.Direction.ASCENDING),
+                                    new OrderByColumnSpec(
+                                        "_d1",
+                                        Direction.DESCENDING,
+                                        StringComparators.NUMERIC
+                                    )
+                                ),
+                                Integer.MAX_VALUE
+                            )
+                        )
+                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .build()
+        ),
+        NullHandling.replaceWithDefault() ?
+        ImmutableList.of(
+            new Object[]{"", timestamp("2001-01-01"), 6.0},
+            new Object[]{"", timestamp("2000-01-01"), 5.0},
+            new Object[]{"a", timestamp("2001-01-01"), 4.0},
+            new Object[]{"abc", timestamp("2001-01-01"), 5.0}
+        ) :
+        ImmutableList.of(
+            new Object[]{null, timestamp("2001-01-01"), 6.0},
+            new Object[]{null, timestamp("2000-01-01"), 2.0},
+            new Object[]{"", timestamp("2000-01-01"), 3.0},
+            new Object[]{"a", timestamp("2001-01-01"), 4.0},
+            new Object[]{"abc", timestamp("2001-01-01"), 5.0}
         )
     );
   }
@@ -13404,7 +13533,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 ImmutableList.of()
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -13470,7 +13599,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 ImmutableList.of()
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -13618,7 +13747,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 ImmutableList.of()
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -13677,7 +13806,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 ImmutableList.of()
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d0", 0, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -13735,7 +13864,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 ImmutableList.of()
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -13796,7 +13925,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 ImmutableList.of("d2")
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d2", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -13857,7 +13986,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 ImmutableList.of()
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -13930,7 +14059,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 Integer.MAX_VALUE
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -13998,7 +14127,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 Integer.MAX_VALUE
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -14067,7 +14196,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 1
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -17261,7 +17390,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 100
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.of(
@@ -17334,7 +17463,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                                 100
                             )
                         )
-                        .setContext(QUERY_CONTEXT_DEFAULT)
+                        .setContext(withTimestampResultContext(QUERY_CONTEXT_DEFAULT, "d1", 1, Granularities.MONTH))
                         .build()
         ),
         ImmutableList.<Object[]>builder().add(
