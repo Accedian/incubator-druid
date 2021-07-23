@@ -24,6 +24,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.druid.data.input.InputRow;
 import org.apache.druid.data.input.InputRowSchema;
 import org.apache.druid.data.input.MapBasedInputRow;
@@ -31,11 +37,6 @@ import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.java.util.common.parsers.ParseException;
 import org.joda.time.DateTime;
 
-import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class MapInputRowParser implements InputRowParser<Map<String, Object>>
 {
@@ -88,7 +89,13 @@ public class MapInputRowParser implements InputRowParser<Map<String, Object>>
   {
     final List<String> dimensionsToUse;
     if (!dimensions.isEmpty()) {
-      dimensionsToUse = dimensions;
+      // dimensionsToUse = dimensions;
+
+      Set<String> discoveredDimensions = theMap.keySet();
+      Set<String> allDimensionsExplicitAndDiscovered = new HashSet<String>(dimensions);
+      allDimensionsExplicitAndDiscovered.addAll(discoveredDimensions);
+
+      dimensionsToUse = new ArrayList<>(Sets.difference(allDimensionsExplicitAndDiscovered, dimensionExclusions));
     } else {
       dimensionsToUse = new ArrayList<>(Sets.difference(theMap.keySet(), dimensionExclusions));
     }
