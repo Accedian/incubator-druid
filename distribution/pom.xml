@@ -175,6 +175,8 @@
                                 <configuration>
                                     <executable>java</executable>
                                     <arguments>
+                                        <argument>--add-opens</argument>
+                                        <argument> java.base/java.lang=ALL-UNNAMED</argument>
                                         <argument>-classpath</argument>
                                         <classpath />
                                         <argument>-Ddruid.extensions.loadList=[]</argument>
