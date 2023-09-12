@@ -165,16 +165,20 @@ public class DataSchema
       final AggregatorFactory[] aggregators
   )
   {
-    final Set<String> inputFieldNames = computeInputFieldNames(timestampSpec, dimensionsSpec, aggregators);
-    final Set<String> outputFieldNames = computeAndValidateOutputFieldNames(dimensionsSpec, aggregators);
+    // final Set<String> inputFieldNames = computeInputFieldNames(timestampSpec, dimensionsSpec, aggregators);
+    // final Set<String> outputFieldNames = computeAndValidateOutputFieldNames(dimensionsSpec, aggregators);
 
-    // Set up additional exclusions: all inputs and outputs, minus defined dimensions.
-    final Set<String> additionalDimensionExclusions = new HashSet<>();
-    additionalDimensionExclusions.addAll(inputFieldNames);
-    additionalDimensionExclusions.addAll(outputFieldNames);
-    additionalDimensionExclusions.removeAll(dimensionsSpec.getDimensionNames());
+    // // Set up additional exclusions: all inputs and outputs, minus defined dimensions.
+    // final Set<String> additionalDimensionExclusions = new HashSet<>();
+    // additionalDimensionExclusions.addAll(inputFieldNames);
+    // additionalDimensionExclusions.addAll(outputFieldNames);
+    // additionalDimensionExclusions.removeAll(dimensionsSpec.getDimensionNames());
 
-    return dimensionsSpec.withDimensionExclusions(additionalDimensionExclusions);
+    // return dimensionsSpec.withDimensionExclusions(additionalDimensionExclusions);
+
+    
+    // dimensionExlcusions should be explicitly provided rather than calculated in schema mode
+    return dimensionsSpec.withDimensionExclusions(getDimensionExclusions());
   }
 
   private static Set<String> computeInputFieldNames(
